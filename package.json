@@ -1,6 +1,6 @@
 {
   "name": "@falconeta/capacitor-wifi-connect",
-  "version": "7.0.0",
+  "version": "7.0.1",
   "description": "plugin used for connect the device through Wifi also with prefix",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",
@@ -17,7 +17,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/falconeta/capacitor-wifi-connect.git"
+    "url": "git+https://github.com/jchri853/capacitor-wifi-connect.git"
   },
   "bugs": {
     "url": "https://github.com/falconeta/capacitor-wifi-connect/issues"
@@ -41,7 +41,8 @@
     "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.mjs",
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
-    "prepublishOnly": "npx semantic-release && npm run build"
+    "prepublishOnly": "npx semantic-release && npm run build",
+    "prepare": "npm run build"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
