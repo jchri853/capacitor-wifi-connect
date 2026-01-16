@@ -45,16 +45,16 @@ public typealias PluginResultData = [String: Any]
     
     func runLocationBlock(callback: @escaping () -> ()){
         
-        //Get the current authorization status
-        let authState = CLLocationManager.authorizationStatus()
-        
-        //If we have permissions, start executing the commands immediately
+        // Get the current authorization status
+        let authState = locationManager.authorizationStatus
+
+        // If we have permissions, start executing the commands immediately
         // otherwise request permission
-        if(authState == .authorizedAlways || authState == .authorizedWhenInUse){
-            self.operationQueue.isSuspended = false
-        }else{
-            //Request permission
-            locationManager.requestWhenInUseAuthorization()
+        if authState == .authorizedAlways || authState == .authorizedWhenInUse {
+          self.operationQueue.isSuspended = false
+        } else {
+          // Request permission
+          locationManager.requestWhenInUseAuthorization()
         }
         
         //Create a closure with the callback function so we can add it to the operationQueue
@@ -67,15 +67,12 @@ public typealias PluginResultData = [String: Any]
     func runLocationBlockRequest(callback: @escaping () -> ()){
         
         //Get the current authorization status
-        let authState = CLLocationManager.authorizationStatus()
-        
-        //If we have permissions, start executing the commands immediately
-        // otherwise request permission
-        if(authState == .authorizedAlways || authState == .authorizedWhenInUse){
-            self.operationQueueForRequest.isSuspended = false
-        }else{
-            //Request permission
-            locationManager.requestWhenInUseAuthorization()
+        let authState = locationManager.authorizationStatus
+
+        if authState == .authorizedAlways || authState == .authorizedWhenInUse {
+          self.operationQueueForRequest.isSuspended = false
+        } else {
+          locationManager.requestWhenInUseAuthorization()
         }
         
         //Create a closure with the callback function so we can add it to the operationQueue
@@ -124,12 +121,15 @@ public typealias PluginResultData = [String: Any]
         self.resolve = resolve;
         
         runLocationBlock {
-            let ssid: String? = self._getSSID()
-            if(ssid == nil){
-                resolve(["value": false])
+          self._getSSID { ssid in
+            guard let ssid = ssid, !ssid.isEmpty else {
+              resolve(["value": false])
+              return
             }
-            NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid ?? "")
+
+            NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid)
             resolve(["value": true])
+          }
         }
     }
     
@@ -143,11 +143,12 @@ public typealias PluginResultData = [String: Any]
         self.resolve = resolve;
         
         runLocationBlock {
-            resolve(["value": self._getSSID() ?? "", "status": 0])
+            self._getSSID { ssid in
+                resolve(["value": ssid ?? "", "status": 0])
+            }
         }
     }
     
-    @available(iOS 14.0, *)
     @objc public func getDeviceSSID(resolve: @escaping (PluginResultData) -> Void, reject: @escaping (_ message: String, _ code: String? , _ error: Error? , _ data: PluginResultData? ) -> Void) -> Void {
         
         if(self.status != .notDetermined && self.status != .authorizedAlways && self.status != .authorizedWhenInUse) {
@@ -167,19 +168,14 @@ public typealias PluginResultData = [String: Any]
         }
     }
     
-    private func _getSSID() -> String? {
-        var ssid: String?
-        if let interfaces = CNCopySupportedInterfaces() as NSArray? {
-            for interface in interfaces {
-                if let interfaceInfo = CNCopyCurrentNetworkInfo(interface as! CFString) as NSDictionary? {
-                    ssid = interfaceInfo[kCNNetworkInfoKeySSID as String] as? String
-                    break
-                }
-            }
+    private func _getSSID(completion: @escaping (String?) -> Void) {
+        NEHotspotNetwork.fetchCurrent { network in
+            let ssid = network?.ssid
+            completion((ssid?.isEmpty == false) ? ssid : nil)
         }
-        return ssid;
     }
     
+
     @objc public func connect(ssid: String, saveNetwork: Bool, resolve: @escaping (PluginResultData) -> Void, reject: @escaping (_ message: String, _ code: String? , _ error: Error? , _ data: PluginResultData? ) -> Void) -> Void {
         
         if(self.status != .notDetermined && self.status != .authorizedAlways && self.status != .authorizedWhenInUse) {
@@ -243,41 +239,46 @@ public typealias PluginResultData = [String: Any]
         }
     }
     
-    private func execConnect(hotspotConfig: NEHotspotConfiguration, resolve: @escaping (PluginResultData) -> Void) -> Void {
-    
-        NEHotspotConfigurationManager.shared.getConfiguredSSIDs { (wifiList) in
-            wifiList.forEach {
-                NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: $0)
-            }
-            
-            NEHotspotConfigurationManager.shared.apply(hotspotConfig) { [weak self] (error) in
-                if let error = error as NSError? {
-                    switch(error.code) {
-                    case NEHotspotConfigurationError.alreadyAssociated.rawValue:
-                        resolve(["value": 0]); // success
-                        break
-                    case NEHotspotConfigurationError.userDenied.rawValue:
-                        resolve(["value": -1]); // button deny
-                        break
-                    default:
-                        resolve(["value": -2]); // no connection
-                        break
-                    }
-                    return
-                }
-                guard let this = self else {
-                    resolve(["value": -3]);
-                    return
-                }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-                    if let currentSsid = self?._getSSID(), currentSsid.hasPrefix(hotspotConfig.ssid){
-                        resolve(["value": 0]);
-                        return;
-                    }
-                    resolve(["value": -2]);
-                }
-            }
+    private func execConnect(hotspotConfig: NEHotspotConfiguration, resolve: @escaping (PluginResultData) -> Void) {
+      NEHotspotConfigurationManager.shared.getConfiguredSSIDs { wifiList in
+        wifiList.forEach {
+          NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: $0)
         }
+
+        NEHotspotConfigurationManager.shared.apply(hotspotConfig) { [weak self] error in
+          if let error = error as NSError? {
+            switch error.code {
+            case NEHotspotConfigurationError.alreadyAssociated.rawValue:
+              resolve(["value": 0]) // success
+            case NEHotspotConfigurationError.userDenied.rawValue:
+              resolve(["value": -1]) // user denied
+            default:
+              resolve(["value": -2]) // no connection
+            }
+            return
+          }
+
+          guard let self = self else {
+            resolve(["value": -3])
+            return
+          }
+
+          DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+            guard let self = self else {
+              resolve(["value": -3])
+              return
+            }
+
+            self._getSSID { currentSsid in
+              if let currentSsid = currentSsid,
+                 currentSsid.hasPrefix(hotspotConfig.ssid) {
+                resolve(["value": 0])
+              } else {
+                resolve(["value": -2])
+              }
+            }
+          }
+      }
     }
+  }
 }
